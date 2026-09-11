@@ -18,7 +18,6 @@ def extrair_dados_pdf(pdf_file):
             if not texto:
                 continue
             
-            # Regex para capturar Matrícula, Aluno e Turma
             padrao_cabecalho = r"MATRÍCULA:\s*(\d+).*?ALUNO:\s*(.*?)\s*PERÍODO LETIVO:.*?TURMA:\s*(\d+)"
             match_cabecalho = re.search(padrao_cabecalho, texto, re.DOTALL | re.IGNORECASE)
             
@@ -29,18 +28,14 @@ def extrair_dados_pdf(pdf_file):
                 
                 linhas = texto.split('\n')
                 for linha in linhas:
-                    # Verifica se a linha é de uma disciplina
                     if any(disciplina in linha for disciplina in ["LIN.PORTUGUESA", "GEOGRAFIA", "HISTORIA", "EDUCACAO FISICA", "MATEMATICA", "CIENCIAS", "ED.SOCIO.ENS.RELIG.", "ARTE", "LINGUA INGLESA"]):
                         partes = linha.split()
                         disciplina_nome = partes[0]
                         if disciplina_nome == "LIN.PORTUGUESA" and len(partes) > 1 and partes[1] == "2":
                             disciplina_nome = "LIN.PORTUGUESA 2"
                         
-                        # Extrai os números da linha (notas e faltas)
                         numeros = re.findall(r'\d+[\.,]?\d*', linha)
                         
-                        # O formato do PDF geralmente é: Disciplina, N1, F1, N2, F2, N3, F3, Total, Faltas
-                        # Precisamos das notas das etapas (N1, N2, N3)
                         if len(numeros) >= 5:
                             try:
                                 n1 = float(numeros[0].replace(',', '.'))
@@ -60,27 +55,43 @@ def extrair_dados_pdf(pdf_file):
                                 pass
     return pd.DataFrame(dados)
 
-# Função para calcular média e pontos
-def calcular_media_pontos(nota, etapa):
-    if etapa == "1ª Etapa":
-        max_pontos = 30
-    elif etapa == "2ª Etapa":
-        max_pontos = 35
-    else: # 3ª Etapa
-        max_pontos = 35
+# Função para processar uma etapa específica
+def processar_etapa(df, etapa):
+    max_pontos = {"1ª Etapa": 30, "2ª Etapa": 35, "3ª Etapa": 35}[etapa]
     
-    # Calcula a média percentual
-    media = (nota / max_pontos) * 100
+    # Agrupa por Turma e Aluno
+    agrupado = df.groupby(['Turma', 'Aluno']).agg(
+        Soma_Notas=(etapa, 'sum'),
+        Num_Materias=(etapa, 'count')
+    ).reset_index()
     
-    # Define os pontos conforme a regra
-    if media < 80:
-        pontos = 0
-    elif 80 <= media < 90:
-        pontos = 2
-    else:
-        pontos = 3
-        
-    return round(media, 2), pontos
+    # Calcula a média das notas (soma / número de matérias)
+    agrupado['Média das Notas'] = (agrupado['Soma_Notas'] / agrupado['Num_Materias']).round(2)
+    
+    # Calcula a porcentagem em relação ao máximo da etapa
+    agrupado['Porcentagem'] = ((agrupado['Média das Notas'] / max_pontos) * 100).round(2)
+    
+    # Calcula os pontos
+    def calcular_pontos(porcentagem):
+        if porcentagem < 80:
+            return 0
+        elif 80 <= porcentagem < 90:
+            return 2
+        else:
+            return 3
+    
+    agrupado['Total de Pontos'] = agrupado['Porcentagem'].apply(calcular_pontos)
+    
+    # Renomeia as colunas para ficar bonito
+    agrupado = agrupado.rename(columns={
+        'Soma_Notas': 'Soma das Notas',
+        'Num_Materias': 'Nº de Matérias'
+    })
+    
+    # Reorganiza a ordem das colunas
+    agrupado = agrupado[['Turma', 'Aluno', 'Soma das Notas', 'Média das Notas', 'Nº de Matérias', 'Porcentagem', 'Total de Pontos']]
+    
+    return agrupado
 
 # --- Interface Principal ---
 uploaded_file = st.sidebar.file_uploader("📂 Faça o upload do Boletim (PDF)", type="pdf")
@@ -92,10 +103,10 @@ if uploaded_file is not None:
         df_notas = extrair_dados_pdf(uploaded_file)
     
     if not df_notas.empty:
-        st.subheader("✅ Prévia dos Dados Extraídos")
+        st.subheader("✅ Prévia dos Dados Extraídos (por disciplina)")
         st.dataframe(df_notas.head())
         
-        # Filtros na barra lateral
+        # Filtros
         st.sidebar.header("⚙️ Filtros")
         turmas = sorted(df_notas['Turma'].unique())
         turma_selecionada = st.sidebar.selectbox("Selecione a Turma", turmas)
@@ -103,23 +114,16 @@ if uploaded_file is not None:
         etapas = ["1ª Etapa", "2ª Etapa", "3ª Etapa"]
         etapa_selecionada = st.sidebar.selectbox("Selecione a Etapa", etapas)
         
-        # Filtrar dados
+        # Filtra os dados pela turma selecionada
         df_filtrado = df_notas[df_notas['Turma'] == turma_selecionada].copy()
         
-        # Aplicar cálculo
-        df_filtrado[['Média', 'Pontos']] = df_filtrado.apply(
-            lambda row: calcular_media_pontos(row[etapa_selecionada], etapa_selecionada), 
-            axis=1, result_type='expand'
-        )
-        
-        # Organizar tabela final
-        df_final = df_filtrado[['Turma', 'Aluno', 'Disciplina', etapa_selecionada, 'Média', 'Pontos']].copy()
-        df_final = df_final.rename(columns={etapa_selecionada: f'Nota {etapa_selecionada}'})
+        # Processa a etapa selecionada
+        df_resultado = processar_etapa(df_filtrado, etapa_selecionada)
         
         st.subheader(f"📋 Resultados: Turma {turma_selecionada} - {etapa_selecionada}")
         
-        # Colorir as médias (Vermelho para < 80, Azul para 80-90, Verde para >= 90)
-        def colorir_media(val):
+        # Colorir a porcentagem
+        def colorir_porcentagem(val):
             if val < 80:
                 return 'color: red; font-weight: bold'
             elif 80 <= val < 90:
@@ -127,22 +131,25 @@ if uploaded_file is not None:
             else:
                 return 'color: green; font-weight: bold'
         
-        st.dataframe(df_final.style.map(colorir_media, subset=['Média']))
+        st.dataframe(df_resultado.style.map(colorir_porcentagem, subset=['Porcentagem']))
         
-        # Exportar para Excel
-        st.subheader("📥 Exportar Dados")
+        # --- Exportar para Excel com 3 abas ---
+        st.subheader("📥 Exportar Dados para Excel")
+        
         output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            df_final.to_excel(writer, index=False, sheet_name='Notas')
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            for etapa in etapas:
+                df_etapa = processar_etapa(df_filtrado, etapa)
+                df_etapa.to_excel(writer, sheet_name=etapa, index=False)
         
         st.download_button(
-            label="Baixar Tabela em Excel",
+            label="Baixar Planilha Excel (3 abas - 1ª, 2ª e 3ª etapas)",
             data=output.getvalue(),
-            file_name=f"notas_{turma_selecionada}_{etapa_selecionada}.xlsx",
+            file_name=f"resultados_turma_{turma_selecionada}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
         
     else:
-        st.warning("Nenhum dado foi extraído. Verifique se o PDF está no formato correto ou se é um arquivo escaneado (imagem).")
+        st.warning("Nenhum dado foi extraído. Verifique se o PDF está no formato correto.")
 else:
     st.info("👈 Por favor, faça o upload do arquivo PDF do boletim na barra lateral esquerda.")
