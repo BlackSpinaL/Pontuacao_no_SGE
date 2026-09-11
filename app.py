@@ -46,19 +46,13 @@ MAPA_DISCIPLINAS = {
 DISCIPLINAS_VALIDAS = list(MAPA_DISCIPLINAS.keys())
 
 # ============================================================
-# FUNÇÃO: EXTRAIR DADOS DO PDF
+# FUNÇÃO: EXTRAIR DADOS DO PDF (com cache)
 # ============================================================
-def extrair_dados_pdf(pdf_file):
+@st.cache_data
+def extrair_dados_pdf(pdf_bytes):
     dados = []
-    with pdfplumber.open(pdf_file) as pdf:
-        total_paginas = len(pdf.pages)
-        progresso = st.progress(0)
-        status = st.empty()
-        
-        for i, pagina in enumerate(pdf.pages):
-            progresso.progress((i + 1) / total_paginas)
-            status.text(f"Processando página {i + 1} de {total_paginas}...")
-            
+    with pdfplumber.open(pdf_bytes) as pdf:
+        for pagina in pdf.pages:
             try:
                 texto = pagina.extract_text()
             except Exception:
@@ -109,10 +103,6 @@ def extrair_dados_pdf(pdf_file):
                             "2ª Etapa": n2,
                             "3ª Etapa": n3
                         })
-        
-        progresso.empty()
-        status.empty()
-    
     return pd.DataFrame(dados)
 
 # ============================================================
@@ -126,10 +116,7 @@ def processar_etapa(df, etapa):
         Num_Materias=(etapa, 'count')
     ).reset_index()
     
-    # Média por matéria
     agrupado['Média das Notas'] = (agrupado['Soma_Notas'] / agrupado['Num_Materias']).round(2)
-    
-    # Porcentagem correta: soma em relação ao total possível
     agrupado['Porcentagem'] = ((agrupado['Soma_Notas'] / (agrupado['Num_Materias'] * max_pontos)) * 100).round(2)
     
     def calcular_pontos(porcentagem):
@@ -173,7 +160,7 @@ if uploaded_file is not None:
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             for etapa in etapas:
-                df_etapa = processar_etapa(df_notas, etapa)  # usa todas as turmas
+                df_etapa = processar_etapa(df_notas, etapa)
                 nome_aba = etapa.replace("ª", "a")
                 df_etapa.to_excel(writer, sheet_name=nome_aba, index=False)
         
