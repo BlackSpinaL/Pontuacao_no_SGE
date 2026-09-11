@@ -46,7 +46,7 @@ MAPA_DISCIPLINAS = {
 DISCIPLINAS_VALIDAS = list(MAPA_DISCIPLINAS.keys())
 
 # ============================================================
-# FUNÇÃO: EXTRAIR DADOS DO PDF (com cache)
+# FUNÇÃO: EXTRAIR DADOS DO PDF
 # ============================================================
 @st.cache_data
 def extrair_dados_pdf(pdf_bytes):
@@ -116,8 +116,11 @@ def processar_etapa(df, etapa):
         Num_Materias=(etapa, 'count')
     ).reset_index()
     
+    # Média por matéria
     agrupado['Média das Notas'] = (agrupado['Soma_Notas'] / agrupado['Num_Materias']).round(2)
-    agrupado['Porcentagem'] = ((agrupado['Soma_Notas'] / (agrupado['Num_Materias'] * max_pontos)) * 100).round(2)
+    
+    # Porcentagem correta: média em relação ao máximo da etapa
+    agrupado['Porcentagem'] = ((agrupado['Média das Notas'] / max_pontos) * 100).round(2)
     
     def calcular_pontos(porcentagem):
         if porcentagem < 80:
