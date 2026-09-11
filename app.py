@@ -12,7 +12,7 @@ st.title("📊 Sistema de Cálculo de Médias e Pontos")
 st.markdown("Faça o upload do boletim em PDF para calcular as médias e pontos por etapa.")
 
 # ============================================================
-# MAPEAMENTO DE DISCIPLINAS (completo)
+# MAPEAMENTO DE DISCIPLINAS
 # ============================================================
 MAPA_DISCIPLINAS = {
     "ARTE": "Arte",
@@ -119,29 +119,32 @@ def extrair_dados_pdf(pdf_file):
 # FUNÇÃO: PROCESSAR UMA ETAPA
 # ============================================================
 def processar_etapa(df, etapa):
+    max_pontos = {"1ª Etapa": 30, "2ª Etapa": 35, "3ª Etapa": 35}[etapa]
+    
     agrupado = df.groupby(['Turma', 'Aluno']).agg(
         Soma_Notas=(etapa, 'sum'),
         Num_Materias=(etapa, 'count')
     ).reset_index()
     
     agrupado['Média das Notas'] = (agrupado['Soma_Notas'] / agrupado['Num_Materias']).round(2)
+    agrupado['Porcentagem'] = ((agrupado['Média das Notas'] / max_pontos) * 100).round(2)
     
-    def calcular_pontos(media):
-        if media < 80:
+    def calcular_pontos(porcentagem):
+        if porcentagem < 80:
             return 0
-        elif 80 <= media < 90:
+        elif 80 <= porcentagem < 90:
             return 2
         else:
             return 3
     
-    agrupado['Total de Pontos'] = agrupado['Média das Notas'].apply(calcular_pontos)
+    agrupado['Total de Pontos'] = agrupado['Porcentagem'].apply(calcular_pontos)
     
     agrupado = agrupado.rename(columns={
         'Soma_Notas': 'Soma das Notas',
         'Num_Materias': 'Nº de Matérias'
     })
     
-    return agrupado[['Turma', 'Aluno', 'Soma das Notas', 'Média das Notas', 'Nº de Matérias', 'Total de Pontos']]
+    return agrupado[['Turma', 'Aluno', 'Soma das Notas', 'Média das Notas', 'Nº de Matérias', 'Porcentagem', 'Total de Pontos']]
 
 # ============================================================
 # INTERFACE PRINCIPAL
@@ -160,31 +163,21 @@ if uploaded_file is not None:
         st.subheader("✅ Prévia dos Dados Extraídos (por disciplina)")
         st.dataframe(df_notas.head(20))
         
-        turmas = sorted(df_notas['Turma'].unique())
-        turma_selecionada = st.sidebar.selectbox("Selecione a Turma", turmas)
-        
         etapas = ["1ª Etapa", "2ª Etapa", "3ª Etapa"]
-        etapa_selecionada = st.sidebar.selectbox("Selecione a Etapa", etapas)
         
-        df_filtrado = df_notas[df_notas['Turma'] == turma_selecionada].copy()
-        df_resultado = processar_etapa(df_filtrado, etapa_selecionada)
-        
-        st.subheader(f"📋 Resultados: Turma {turma_selecionada} - {etapa_selecionada}")
-        st.dataframe(df_resultado)
-        
-        # Exportar Excel com 3 abas
+        # Exportar Excel com todas as turmas e 3 abas
         st.subheader("📥 Exportar Dados para Excel")
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             for etapa in etapas:
-                df_etapa = processar_etapa(df_filtrado, etapa)
+                df_etapa = processar_etapa(df_notas, etapa)  # usa todas as turmas
                 nome_aba = etapa.replace("ª", "a")
                 df_etapa.to_excel(writer, sheet_name=nome_aba, index=False)
         
         st.download_button(
-            label="📥 Baixar Planilha Excel (3 abas - 1ª, 2ª e 3ª etapas)",
+            label="📥 Baixar Planilha Excel (todas as turmas - 1ª, 2ª e 3ª etapas)",
             data=output.getvalue(),
-            file_name=f"resultados_turma_{turma_selecionada}.xlsx",
+            file_name="resultados_todas_turmas.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
         
