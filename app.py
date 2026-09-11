@@ -12,43 +12,61 @@ st.title("📊 Sistema de Cálculo de Médias e Pontos")
 st.markdown("Faça o upload do boletim em PDF para calcular as médias e pontos por etapa.")
 
 # ============================================================
-# MAPEAMENTO DE DISCIPLINAS (nomes cortados pelo PDF → completos)
+# MAPEAMENTO DE DISCIPLINAS (completo)
 # ============================================================
 MAPA_DISCIPLINAS = {
-    "LIN.PORTUGUESA 2": "LÍNGUA PORTUGUESA 2",
-    "LIN.PORTUGUESA": "LÍNGUA PORTUGUESA",
-    "GEOGRAFIA": "GEOGRAFIA",
-    "HISTORIA": "HISTÓRIA",
-    "EDUCACAO FISICA": "EDUCAÇÃO FÍSICA",
-    "EDUCACAO": "EDUCAÇÃO FÍSICA",
-    "MATEMATICA": "MATEMÁTICA",
-    "CIENCIAS": "CIÊNCIAS",
-    "ED.SOCIO.ENS.RELIG.": "ENS. RELIGIOSO",
-    "ARTE": "ARTE",
-    "LINGUA INGLESA": "LÍNGUA INGLESA",
-    "LINGUA": "LÍNGUA INGLESA",
+    "ARTE": "Arte",
+    "BIOLOGIA": "Biologia",
+    "BIOLOGIA NA PRATICA": "Biologia na Prática",
+    "C.DA NATUREZA P ENEM": "C. da Natureza P/ ENEM",
+    "CIENCIAS": "Ciências",
+    "DESENV. SUSTENTAVEL": "Desenv. Sustentável",
+    "ED. PARA PROFISSOES": "Ed. para Profissões",
+    "ED.FISICA NA PRATICA": "Ed. Física na Prática",
+    "ED.SOCIO.ENS.RELIG.": "Ed. Socio. Ens. Relig.",
+    "EDUCACAO FINANCEIRA": "Educação Financeira",
+    "EDUCACAO FISICA": "Educação Física",
+    "FILOSOFIA": "Filosofia",
+    "FISICA": "Física",
+    "GEOGRAFIA": "Geografia",
+    "HISTORIA": "História",
+    "L.INGLESA NA PRATICA": "L. Inglesa na Prática",
+    "LIN.PORTUGUESA": "Lin. Portuguesa",
+    "LIN.PORTUGUESA 2": "Lin. Portuguesa 2",
+    "LINGUA INGLESA": "Língua Inglesa",
+    "MAT.E ESTATISTICA": "Mat. e Estatística",
+    "MATEMATICA": "Matemática",
+    "OFICINA DE TEXTO": "Oficina de Texto",
+    "PROJETO DE VIDA": "Projeto de Vida",
+    "QUIMICA": "Química",
+    "QUIMICA NA PRATICA": "Química na Prática",
+    "SOCIOLOGIA": "Sociologia"
 }
 
-# Lista de disciplinas como aparecem no PDF (para busca na linha)
-DISCIPLINAS_VALIDAS = [
-    "LIN.PORTUGUESA 2", "LIN.PORTUGUESA", "GEOGRAFIA", "HISTORIA",
-    "EDUCACAO FISICA", "EDUCACAO", "MATEMATICA", "CIENCIAS",
-    "ED.SOCIO.ENS.RELIG.", "ARTE", "LINGUA INGLESA", "LINGUA"
-]
+DISCIPLINAS_VALIDAS = list(MAPA_DISCIPLINAS.keys())
 
 # ============================================================
 # FUNÇÃO: EXTRAIR DADOS DO PDF
 # ============================================================
 def extrair_dados_pdf(pdf_file):
     dados = []
-    
     with pdfplumber.open(pdf_file) as pdf:
-        for pagina in pdf.pages:
-            texto = pagina.extract_text()
-            if not texto:
+        total_paginas = len(pdf.pages)
+        progresso = st.progress(0)
+        status = st.empty()
+        
+        for i, pagina in enumerate(pdf.pages):
+            progresso.progress((i + 1) / total_paginas)
+            status.text(f"Processando página {i + 1} de {total_paginas}...")
+            
+            try:
+                texto = pagina.extract_text()
+            except Exception:
                 continue
             
-            # Captura cabeçalho: Matrícula, Aluno e Turma
+            if not texto or len(texto.strip()) < 10:
+                continue
+            
             padrao_cabecalho = r"MATRÍCULA:\s*(\d+).*?ALUNO:\s*(.*?)\s*PERÍODO LETIVO:.*?TURMA:\s*(\d+)"
             match_cabecalho = re.search(padrao_cabecalho, texto, re.DOTALL | re.IGNORECASE)
             
@@ -59,7 +77,6 @@ def extrair_dados_pdf(pdf_file):
                 
                 linhas = texto.split('\n')
                 for linha in linhas:
-                    # Verifica qual disciplina a linha contém
                     disciplina_encontrada = None
                     for disc in DISCIPLINAS_VALIDAS:
                         if linha.strip().startswith(disc):
@@ -67,13 +84,9 @@ def extrair_dados_pdf(pdf_file):
                             break
                     
                     if disciplina_encontrada:
-                        # Remove o nome da disciplina para pegar só os números
                         linha_sem_nome = linha[len(disciplina_encontrada):].strip()
-                        
-                        # Extrai todos os números da linha
                         numeros = re.findall(r'\d+[\.,]?\d*', linha_sem_nome)
                         
-                        # Converte para float
                         nums_float = []
                         for n in numeros:
                             try:
@@ -81,13 +94,10 @@ def extrair_dados_pdf(pdf_file):
                             except ValueError:
                                 pass
                         
-                        # Estrutura: Nota1, Falta1, Nota2, Falta2, Nota3, Falta3, Total, FaltaTotal
-                        # As notas estão nas posições pares: 0, 2, 4
                         n1 = nums_float[0] if len(nums_float) > 0 else 0
                         n2 = nums_float[2] if len(nums_float) > 2 else 0
                         n3 = nums_float[4] if len(nums_float) > 4 else 0
                         
-                        # Usa o nome completo da disciplina
                         nome_completo = MAPA_DISCIPLINAS.get(disciplina_encontrada, disciplina_encontrada)
                         
                         dados.append({
@@ -99,67 +109,39 @@ def extrair_dados_pdf(pdf_file):
                             "2ª Etapa": n2,
                             "3ª Etapa": n3
                         })
+        
+        progresso.empty()
+        status.empty()
     
     return pd.DataFrame(dados)
 
 # ============================================================
-# FUNÇÃO: PROCESSAR UMA ETAPA (calcular média e pontos)
+# FUNÇÃO: PROCESSAR UMA ETAPA
 # ============================================================
 def processar_etapa(df, etapa):
-    """
-    Recebe o DataFrame bruto e a etapa escolhida.
-    Retorna um DataFrame agrupado por Turma + Aluno com soma, média e pontos.
-    """
-    # Total de pontos distribuídos em cada etapa
-    max_pontos = {"1ª Etapa": 30, "2ª Etapa": 35, "3ª Etapa": 35}[etapa]
-    
-    # Agrupa por Turma e Aluno
     agrupado = df.groupby(['Turma', 'Aluno']).agg(
         Soma_Notas=(etapa, 'sum'),
         Num_Materias=(etapa, 'count')
     ).reset_index()
     
-    # Calcula a média das notas (soma / número de matérias)
     agrupado['Média das Notas'] = (agrupado['Soma_Notas'] / agrupado['Num_Materias']).round(2)
     
-    # Calcula a porcentagem em relação ao máximo da etapa
-    agrupado['Porcentagem'] = ((agrupado['Média das Notas'] / max_pontos) * 100).round(2)
-    
-    # Função para calcular os pontos
-    def calcular_pontos(porcentagem):
-        if porcentagem < 80:
+    def calcular_pontos(media):
+        if media < 80:
             return 0
-        elif 80 <= porcentagem < 90:
+        elif 80 <= media < 90:
             return 2
         else:
             return 3
     
-    agrupado['Total de Pontos'] = agrupado['Porcentagem'].apply(calcular_pontos)
+    agrupado['Total de Pontos'] = agrupado['Média das Notas'].apply(calcular_pontos)
     
-    # Renomeia as colunas
     agrupado = agrupado.rename(columns={
         'Soma_Notas': 'Soma das Notas',
         'Num_Materias': 'Nº de Matérias'
     })
     
-    # Reorganiza a ordem das colunas
-    agrupado = agrupado[[
-        'Turma', 'Aluno', 'Soma das Notas',
-        'Média das Notas', 'Nº de Matérias', 'Porcentagem', 'Total de Pontos'
-    ]]
-    
-    return agrupado
-
-# ============================================================
-# FUNÇÃO: COLORIR A PORCENTAGEM NA TABELA
-# ============================================================
-def colorir_porcentagem(val):
-    if val < 80:
-        return 'color: red; font-weight: bold'
-    elif 80 <= val < 90:
-        return 'color: blue; font-weight: bold'
-    else:
-        return 'color: green; font-weight: bold'
+    return agrupado[['Turma', 'Aluno', 'Soma das Notas', 'Média das Notas', 'Nº de Matérias', 'Total de Pontos']]
 
 # ============================================================
 # INTERFACE PRINCIPAL
@@ -169,43 +151,33 @@ uploaded_file = st.sidebar.file_uploader("📂 Faça o upload do Boletim (PDF)",
 if uploaded_file is not None:
     st.success("PDF carregado com sucesso!")
     
-    # Extrai os dados do PDF
     with st.spinner("Extraindo dados do PDF..."):
         df_notas = extrair_dados_pdf(uploaded_file)
     
     if not df_notas.empty:
-        # Mostra a prévia dos dados brutos
+        st.success(f"✅ Extração concluída! {len(df_notas)} registros encontrados.")
+        
         st.subheader("✅ Prévia dos Dados Extraídos (por disciplina)")
         st.dataframe(df_notas.head(20))
         
-        # Filtros na barra lateral
-        st.sidebar.header("⚙️ Filtros")
         turmas = sorted(df_notas['Turma'].unique())
         turma_selecionada = st.sidebar.selectbox("Selecione a Turma", turmas)
         
         etapas = ["1ª Etapa", "2ª Etapa", "3ª Etapa"]
         etapa_selecionada = st.sidebar.selectbox("Selecione a Etapa", etapas)
         
-        # Filtra os dados pela turma selecionada
         df_filtrado = df_notas[df_notas['Turma'] == turma_selecionada].copy()
-        
-        # Processa a etapa selecionada
         df_resultado = processar_etapa(df_filtrado, etapa_selecionada)
         
-        # Exibe o resultado
         st.subheader(f"📋 Resultados: Turma {turma_selecionada} - {etapa_selecionada}")
-        st.dataframe(df_resultado.style.map(colorir_porcentagem, subset=['Porcentagem']))
+        st.dataframe(df_resultado)
         
-        # ============================================================
-        # EXPORTAR PARA EXCEL COM 3 ABAS
-        # ============================================================
+        # Exportar Excel com 3 abas
         st.subheader("📥 Exportar Dados para Excel")
-        
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             for etapa in etapas:
                 df_etapa = processar_etapa(df_filtrado, etapa)
-                # Nome da aba (Excel não aceita "ª" em alguns casos, mas aceita)
                 nome_aba = etapa.replace("ª", "a")
                 df_etapa.to_excel(writer, sheet_name=nome_aba, index=False)
         
@@ -214,18 +186,6 @@ if uploaded_file is not None:
             data=output.getvalue(),
             file_name=f"resultados_turma_{turma_selecionada}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-        
-        # ============================================================
-        # EXPORTAR PARA CSV (opcional)
-        # ============================================================
-        st.subheader("📥 Exportar para CSV (etapa selecionada)")
-        csv = df_resultado.to_csv(index=False).encode('utf-8-sig')
-        st.download_button(
-            label=f"📥 Baixar CSV - {etapa_selecionada}",
-            data=csv,
-            file_name=f"resultados_{turma_selecionada}_{etapa_selecionada}.csv",
-            mime="text/csv"
         )
         
     else:
