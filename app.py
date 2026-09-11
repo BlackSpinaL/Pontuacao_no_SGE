@@ -129,8 +129,8 @@ def processar_etapa(df, etapa):
     # Média por matéria
     agrupado['Média das Notas'] = (agrupado['Soma_Notas'] / agrupado['Num_Materias']).round(2)
     
-    # Porcentagem correta: média em relação ao máximo da etapa
-    agrupado['Porcentagem'] = ((agrupado['Média das Notas'] / max_pontos) * 100).round(2)
+    # Porcentagem correta: soma em relação ao total possível
+    agrupado['Porcentagem'] = ((agrupado['Soma_Notas'] / (agrupado['Num_Materias'] * max_pontos)) * 100).round(2)
     
     def calcular_pontos(porcentagem):
         if porcentagem < 80:
