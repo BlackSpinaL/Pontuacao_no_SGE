@@ -169,7 +169,9 @@ def extrair_dados_pdf(pdf_bytes):
 def processar_etapa(df, etapa):
     max_pontos = {"1ª Etapa": 30, "2ª Etapa": 35, "3ª Etapa": 35}[etapa]
 
-    agrupado = df.groupby(['Turma', 'Aluno']).agg(
+    # Agrupa por Turma + Matrícula + Aluno (a matrícula evita juntar
+    # homônimos na mesma turma e garante rastreabilidade do aluno).
+    agrupado = df.groupby(['Turma', 'Matrícula', 'Aluno']).agg(
         Soma_Notas=(etapa, 'sum'),
         Num_Materias=(etapa, 'count')
     ).reset_index()
@@ -201,7 +203,11 @@ def processar_etapa(df, etapa):
         'Num_Materias': 'Nº de Matérias'
     })
 
-    return agrupado[['Turma', 'Aluno', 'Soma das Notas', 'Média das Notas', 'Nº de Matérias', 'Porcentagem', 'Total de Pontos']]
+    # Colunas finais com Matrícula logo após Turma, ordenado por turma/matrícula
+    return agrupado[
+        ['Turma', 'Matrícula', 'Aluno', 'Soma das Notas',
+         'Média das Notas', 'Nº de Matérias', 'Porcentagem', 'Total de Pontos']
+    ].sort_values(by=['Turma', 'Matrícula']).reset_index(drop=True)
 
 # ============================================================
 # INTERFACE PRINCIPAL
